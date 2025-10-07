@@ -85,9 +85,53 @@ def target_type(target):
     return 'f'  # file
 
 
+def should_skip_directory(dirpath, exclude_paths=None):
+    """
+    Check if a directory should be skipped during traversal.
+    Always skips /dev and /proc (absolute or relative paths).
+    Optionally skips additional paths specified in exclude_paths.
+    
+    Args:
+        dirpath: Directory path to check
+        exclude_paths: Optional list of additional paths to exclude
+    
+    Returns:
+        True if directory should be skipped, False otherwise
+    """
+    # Normalize path to handle both Windows and Unix paths
+    normalized = os.path.normpath(dirpath).replace('\\', '/')
+    abs_path = os.path.abspath(dirpath).replace('\\', '/')
+    
+    # Always skip /dev and /proc
+    path_parts = normalized.split('/')
+    
+    for part in path_parts:
+        if part in ('dev', 'proc'):
+            # Verify it's actually the system directory by checking absolute path
+            if '/dev' in abs_path or '/proc' in abs_path:
+                return True
+    
+    # Check user-specified exclude paths
+    if exclude_paths:
+        for exclude in exclude_paths:
+            exclude_norm = os.path.normpath(exclude).replace('\\', '/')
+            exclude_abs = os.path.abspath(exclude).replace('\\', '/')
+            
+            # Check if current path matches or is under the excluded path
+            if (normalized == exclude_norm or 
+                abs_path == exclude_abs or
+                normalized.startswith(exclude_norm + '/') or
+                abs_path.startswith(exclude_abs + '/')):
+                return True
+    
+    return False
+
+
 def sym_list(config, dirs):
     """
     List all symbolic links in the specified directories.
+    Skips /dev and /proc directories (absolute or relative paths).
+    Also skips any directories specified via --exclude option.
     
     Args:
         config: Configuration dictionary with options
@@ -95,6 +139,8 @@ def sym_list(config, dirs):
     """
     if not dirs:
         dirs = ['.']
+    
+    exclude_paths = config.get('exclude', [])
     
     # Open output file or use stdout
     if config.get('output'):
@@ -108,7 +154,21 @@ def sym_list(config, dirs):
     
     try:
         for directory in dirs:
+            # Skip if the directory itself is /dev or /proc or excluded
+            if should_skip_directory(directory, exclude_paths):
+                warning("Skipping excluded directory: {}", directory)
+                continue
+            
             for root, dirs_in_root, files in os.walk(directory):
+                # Skip /dev and /proc and excluded paths during traversal
+                if should_skip_directory(root, exclude_paths):
+                    dirs_in_root[:] = []  # Don't traverse subdirectories
+                    continue
+                
+                # Filter out /dev, /proc, and excluded paths from subdirectories to traverse
+                dirs_in_root[:] = [d for d in dirs_in_root 
+                                   if not should_skip_directory(join(root, d), exclude_paths)]
+                
                 # Check all entries in the directory
                 for name in dirs_in_root + files:
                     path = join(root, name)
@@ -275,6 +335,9 @@ Examples:
   # Save symlinks from {src,build,lib} and downward:
   sym --list --out /tmp/symlinks.txt src build lib
 
+  # Save symlinks, excluding .git and node_modules:
+  sym --list --exclude .git --exclude node_modules --out /tmp/symlinks.txt
+
   # Remove the recorded symlinks:
   sym --remove /tmp/symlinks.txt
 
@@ -289,6 +352,8 @@ Examples:
 
   # Restore with owner/group (note: not yet implemented):
   sym --restore --owner /tmp/symlinks.txt
+
+Note: /dev and /proc are always excluded from traversal.
         """
     )
     
@@ -329,6 +394,12 @@ Examples:
                         help="list/extract - record if target is a [d]irectory, a [f]ile, "
                              "[m]issing or [c]orrupt. "
                              "restore - if target type does not match, do not create symlink.")
+    parser.add_argument('-e', '--exclude',
+                        action='append',
+                        dest='exclude',
+                        metavar='PATH',
+                        help="Exclude PATH from directory traversal. Can be specified multiple times. "
+                             "Note: /dev and /proc are always excluded.")
     parser.add_argument('--root',
                         metavar='DIR',
                         help="Change to DIR before processing (restore action).")
@@ -355,7 +426,8 @@ def main():
         'overwrite': args.overwrite,
         'owner': args.owner,
         'type': args.type,
-        'root': args.root or '.'
+        'root': args.root or '.',
+        'exclude': args.exclude or []
     }
     
     # Change to root directory if specified

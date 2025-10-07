@@ -1,0 +1,2 @@
+d : ./link-dir1 : dir1
+f : ./link-file2 : dir2/file2.txt

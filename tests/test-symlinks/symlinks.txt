@@ -1,0 +1,1 @@
+d : .\link-to-target : \\?\C:\-\cygwin\root\home\phdyex\my-repos\sym\test-symlinks\target
