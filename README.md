@@ -174,7 +174,9 @@ Priority items for future development:
 
 ## License
 
-This is a port of the original Perl script. Refer to the original script's license terms.
+MIT License - Copyright (c) 2025 Philip H. Dye <philip.h.dye@gmail.com>
+
+See the [LICENSE](LICENSE) file for full license text.
 
 ## Contributing
 
